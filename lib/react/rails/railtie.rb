@@ -6,7 +6,7 @@ module React
       config.react = ActiveSupport::OrderedOptions.new
 
       # Sensible defaults. Can be overridden in application.rb
-      config.react.variant = ::Rails.env.development? ? :development : :production
+      config.react.variant = (::Rails.env.production? ? :production : :development)
       config.react.addons = false
       # Server-side rendering
       config.react.max_renderers = 10
@@ -21,7 +21,7 @@ module React
 
       # run after all initializers to allow sprockets to pick up react.js and
       # jsxtransformer.js from end-user to override ours if needed
-      config.after_initialize do |app|
+      initializer "react_rails.setup_vendor", :after => "sprockets.environment" do |app|
         # Mimic behavior of ember-rails...
         # We want to include different files in dev/prod. The unminified builds
         # contain console logging for invariants and logging to help catch
@@ -31,13 +31,13 @@ module React
         # We'll always copy to 'react.js' so that no includes need to change.
         # We'll also always copy of JSXTransformer.js
         tmp_path = app.root.join('tmp/react-rails')
-        filename = 'react' + (config.react.addons ? '-with-addons' : '') + (config.react.variant == :production ? '.min.js' : '.js')
+        filename = 'react' + (app.config.react.addons ? '-with-addons' : '') + (app.config.react.variant == :production ? '.min.js' : '.js')
         FileUtils.mkdir_p(tmp_path)
         FileUtils.cp(::React::Source.bundled_path_for(filename),
                      tmp_path.join('react.js'))
         FileUtils.cp(::React::Source.bundled_path_for('JSXTransformer.js'),
                      tmp_path.join('JSXTransformer.js'))
-        app.assets.prepend_path tmp_path
+        app.assets.append_path tmp_path
 
         # Allow overriding react files that are not based on environment
         # e.g. /vendor/assets/react/JSXTransformer.js
@@ -46,17 +46,20 @@ module React
 
         # Allow overriding react files that are based on environment
         # e.g. /vendor/assets/react/react.js
-        dropin_path_env = app.root.join("vendor/assets/react/#{config.react.variant}")
+        dropin_path_env = app.root.join("vendor/assets/react/#{app.config.react.variant}")
         app.assets.prepend_path dropin_path_env if dropin_path_env.exist?
+      end
 
+
+      config.after_initialize do |app|
         # Server Rendering
         # Concat component_filenames together for server rendering
-        config.react.components_js = config.react.component_filenames.map do |filename|
-          ::Rails.application.assets[filename].to_s
+        app.config.react.components_js = app.config.react.component_filenames.map do |filename|
+          app.assets[filename].to_s
         end.join(";")
 
         do_setup = lambda do
-          cfg = ::Rails.application.config.react
+          cfg = app.config.react
           React::Renderer.setup!( cfg.react_js.call, cfg.components_js,
                                 {:size => cfg.size, :timeout => cfg.timeout})
         end
@@ -65,9 +68,9 @@ module React
 
         # Reload the JS VMs in dev when files change
         ActionDispatch::Reloader.to_prepare(&do_setup)
-
-
       end
+
+
     end
   end
 end
